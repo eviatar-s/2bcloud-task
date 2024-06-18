@@ -1,27 +1,46 @@
 pipeline {
     agent any
 
+    environment {
+        IMAGE = 'hello-world'
+        TAG = "${env.BUILD_NUMBER}"
+        KUBECONFIG = credentials('kubeconfig-credential-id')
+    }
+
     stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 script {
-                    // Define Dockerfile location
-                    def dockerfile = 'Dockerfile'
-                    
-                    // Build Docker image
-                    docker.build('hello-world:latest', '-f ${dockerfile} .')
+                    sh 'eval $(minikube -p minikube docker-env)'
+                    sh 'docker build -t ${IMAGE}:${TAG} .'
                 }
             }
         }
-        
+
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    // Deploy application to Kubernetes using kubectl
-                    sh 'kubectl apply -f path/to/kubernetes-manifests'
+                    withCredentials([file(credentialsId: 'kubeconfig-credential-id', variable: 'KUBECONFIG_FILE')]) {
+                        sh 'mkdir -p $HOME/.kube'
+                        sh 'cp $KUBECONFIG_FILE $HOME/.kube/config'
+                        sh 'kubectl config use-context minikube'
+                        sh 'kubectl apply -f k8s/deployment.yaml --validate=false'
+                        sh 'kubectl apply -f k8s/service.yaml --validate=false'
+                    }
                 }
             }
         }
     }
-}
 
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
